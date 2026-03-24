@@ -45,9 +45,15 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         pass
 
 def run_server():
-    # Use environment PORT if available (e.g., Render/Railway), otherwise fallback to 8000
+    # Render assigns a random PORT dynamically, we MUST catch it here
     port = int(os.environ.get("PORT", 8000))
-    httpd = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    
+    # Using '' (empty string) instead of 'localhost' or '0.0.0.0' 
+    # ensures it binds to ALL interfaces (IPv4 and IPv6), which Render loves.
+    server_address = ('', port)
+    
+    httpd = HTTPServer(server_address, HealthCheckHandler)
+    print(f"Web server started on port {port}...") # Added a print to help you debug
     httpd.serve_forever()
 
 def keep_alive():
