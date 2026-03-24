@@ -1,3 +1,5 @@
+# RENDER CALLS MAIN.PY NOT THIS
+
 import discord
 from discord.ext import tasks
 import feedparser
