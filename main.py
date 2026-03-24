@@ -7,10 +7,8 @@ import re
 import asyncio
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-
-# --- New FastAPI Imports ---
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Load environment variables from .env file
 load_dotenv()
@@ -33,29 +31,29 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
 # ==========================================
-# FASTAPI SETUP (The Fake Web Server)
+# MINIMAL WEB SERVER (Keep-Alive)
 # ==========================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # This runs BEFORE the web server starts
-    TOKEN = os.environ.get("DISCORD_TOKEN")
-    if not TOKEN:
-        print("Error: DISCORD_TOKEN is missing!")
-    else:
-        # Start the Discord bot in the background using asyncio
-        asyncio.create_task(client.start(TOKEN))
-    yield
-    # This runs when the web server shuts down
-    await client.close()
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{"status": "alive", "message": "I am alive!"}')
 
-# Initialize FastAPI with the lifespan manager
-app = FastAPI(lifespan=lifespan)
+    # Suppress HTTP logging to keep your console clean from UptimeRobot pings
+    def log_message(self, format, *args):
+        pass
 
-# Add a dummy route so UptimeRobot has a URL to ping
-@app.get("/")
-async def root():
-    return {"status": "alive", "message": "Discord bot is running!"}
+def run_server():
+    # Use environment PORT if available (e.g., Render/Railway), otherwise fallback to 8000
+    port = int(os.environ.get("PORT", 8000))
+    httpd = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    httpd.serve_forever()
 
+def keep_alive():
+    # Run the HTTP server in a daemon thread so it doesn't block the Discord Bot
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -159,7 +157,15 @@ async def on_ready():
     if not check_rss.is_running():
         check_rss.start()
 
-# If running locally for testing
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    TOKEN = os.environ.get("DISCORD_TOKEN")
+    if not TOKEN:
+        print("Error: DISCORD_TOKEN is missing!")
+    else:
+        # 1. Start the HTTP keep-alive server in the background
+        keep_alive()
+        # 2. Start the Discord bot in the main thread
+        client.run(TOKEN)
